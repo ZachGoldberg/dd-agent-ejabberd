@@ -16,22 +16,36 @@ class EjabberdCheck(AgentCheck):
         server = xmlrpclib.ServerProxy(instance['url'], verbose=verbose);
         auth = {'user': instance['user'], 'server': instance['server'], 'password': instance['password']}
         try:
-            res = server.stats(auth, {'name': 'onlineusers'})
-            self.gauge('ejabberd.onlineusers', res['stat'])
-            res = server.stats(auth, {'name': 'onlineusersnode'})
-            self.gauge('ejabberd.onlineusersnode', res['stat'])
-            res = server.stats(auth, {'name': 'registeredusers'})
-            self.gauge('ejabberd.registeredusers', res['stat'])
-            res = server.stats(auth, {'name': 'processes'})
-            self.gauge('ejabberd.processes', res['stat'])
-            res = server.incoming_s2s_number(auth)
-            self.gauge('ejabberd.s2s_incoming', res['s2s_incoming'])
-            res = server.outgoing_s2s_number(auth)
-            self.gauge('ejabberd.s2s_outgoing', res['s2s_outgoing'])
+            res = server.stats_extra(auth, {'host': 'localhost'})
+            for stat in res['stats']:
+                # bit of hackery to get the stat out
+                vals = stat['stat']
+                # vals = '{"[counter|gauge]", "sys.nProcs",1550}'
+                # Strip off brackets
+                vals = vals[1:-1]
+
+                typ, key, val = vals.split(",")
+                # key = "sys.nProcs"
+                # val = 1550
+                key = key.replace('"', '')
+                typ = typ.replace('"', '')
+                try:
+                    val = float(val)
+                except:
+                    pass
+
+                # OK, type, key and val now sanitized
+                print typ, key, val
+
+                if typ == "gauge":
+                    self.gauge("ejabberd.%s" % key, val)
+                else:
+                    self.count("ejabberd.%s" % key, val)
+
             self.service_check(self.SERVICE_CHECK_NAME, AgentCheck.OK)
+
         except Exception as e:
             self.service_check(self.SERVICE_CHECK_NAME, AgentCheck.CRITICAL,
                                message="Unable to get ejabberd stats: %s"
                                % str(e))
             pass
-
